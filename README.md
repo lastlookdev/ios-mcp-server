@@ -9,20 +9,9 @@ MCP server that gives Claude the ability to control iOS simulators and automate 
 
 ## Install
 
-**Homebrew (recommended):**
-
 ```sh
 brew install lastlookdev/tap/ios-mcp-server
 ios-mcp-server install
-```
-
-**From source:**
-
-```sh
-git clone https://github.com/lastlookdev/ios-mcp-server.git
-cd ios-mcp-server
-swift build -c release
-.build/release/ios-mcp-server install
 ```
 
 That's it. The `install` command handles everything:

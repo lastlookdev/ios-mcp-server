@@ -7,7 +7,7 @@ package func createIOSMCPServer() async -> Server {
 
     let server = Server(
         name: "ios-mcp-server",
-        version: "0.4.0",
+        version: "0.0.1",
         capabilities: .init(tools: .init(listChanged: false))
     )
 

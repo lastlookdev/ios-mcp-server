@@ -1,7 +1,7 @@
 class IosMcpServer < Formula
   desc "MCP server for controlling iOS simulators and apps via XCUITest"
   homepage "https://github.com/lastlookdev/ios-mcp-server"
-  url "https://github.com/lastlookdev/ios-mcp-server", tag: "0.3.0"
+  url "https://github.com/lastlookdev/ios-mcp-server", tag: "0.1.0"
   license "MIT"
 
   depends_on xcode: ["15.0", :build]
@@ -10,8 +10,6 @@ class IosMcpServer < Formula
   def install
     system "swift", "build", "-c", "release", "--disable-sandbox"
     bin.install ".build/release/ios-mcp-server"
-    # Install SPM resource bundle containing Runner.zip (must be next to binary for Bundle.module)
-    bin.install ".build/release/ios-mcp-server_IOSMCPServer.bundle"
   end
 
   def post_install
