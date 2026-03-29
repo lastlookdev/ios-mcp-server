@@ -29,9 +29,28 @@ extension Value {
     }
 }
 
+// MARK: - Required Parameter Error
+
+struct MissingParameterError: Error, LocalizedError {
+    let name: String
+    var errorDescription: String? { "Missing required parameter: \(name)" }
+}
+
 // MARK: - Argument Extraction
 
 extension Dictionary where Key == String, Value == MCP.Value {
+    func require(_ key: String) throws -> String {
+        guard let value = string(key), !value.isEmpty else {
+            throw MissingParameterError(name: key)
+        }
+        return value
+    }
+    func requireDouble(_ key: String) throws -> Double {
+        guard let value = double(key) else {
+            throw MissingParameterError(name: key)
+        }
+        return value
+    }
     func string(_ key: String) -> String? {
         if case .string(let s) = self[key] { return s }
         return nil

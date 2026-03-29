@@ -268,36 +268,36 @@ func handleSimctlTool(
         return .init(content: [.text(String(data: data, encoding: .utf8) ?? "[]")])
 
     case "sim_boot":
-        let device = args?.string("device") ?? ""
+        let device = try args?.require("device") ?? ""
         let udid = try await simctl.bootDevice(device)
         return try successResponse(["udid": udid])
 
     case "sim_shutdown":
-        let device = args?.string("device") ?? ""
+        let device = try args?.require("device") ?? ""
         try await simctl.shutdownDevice(device)
         return try successResponse()
 
     case "sim_install_app":
-        let device = args?.string("device") ?? ""
-        let appPath = args?.string("app_path") ?? ""
+        let device = try args?.require("device") ?? ""
+        let appPath = try args?.require("app_path") ?? ""
         let udid = try await simctl.resolveDevice(device)
         try await simctl.installApp(deviceUdid: udid, appPath: appPath)
         return try successResponse()
 
     case "sim_launch_app":
-        let device = args?.string("device") ?? ""
-        let bundleId = args?.string("bundle_id") ?? ""
+        let device = try args?.require("device") ?? ""
+        let bundleId = try args?.require("bundle_id") ?? ""
         let udid = try await simctl.resolveDevice(device)
         try await simctl.launchApp(deviceUdid: udid, bundleId: bundleId)
         return try successResponse()
 
     case "sim_keychain":
-        let device = args?.string("device") ?? ""
-        let action = args?.string("action") ?? ""
+        let device = try args?.require("device") ?? ""
+        let action = try args?.require("action") ?? ""
         let udid = try await simctl.resolveDevice(device)
         switch action {
         case "add-root-cert":
-            let certPath = args?.string("cert_path") ?? ""
+            let certPath = try args?.require("cert_path") ?? ""
             try await simctl.addRootCertificate(deviceUdid: udid, certPath: certPath)
         case "reset":
             try await simctl.resetKeychain(deviceUdid: udid)
@@ -307,9 +307,9 @@ func handleSimctlTool(
         return try successResponse()
 
     case "sim_record_video":
-        let action = args?.string("action") ?? ""
+        let action = try args?.require("action") ?? ""
         if action == "start" {
-            let device = args?.string("device") ?? ""
+            let device = try args?.require("device") ?? ""
             let udid = try await simctl.resolveDevice(device)
             let path = args?.string("path")
                 ?? NSTemporaryDirectory() + "recording-\(UUID().uuidString).mp4"
@@ -323,23 +323,23 @@ func handleSimctlTool(
         }
 
     case "sim_get_app_container":
-        let device = args?.string("device") ?? ""
-        let bundleId = args?.string("bundle_id") ?? ""
+        let device = try args?.require("device") ?? ""
+        let bundleId = try args?.require("bundle_id") ?? ""
         let container = args?.string("container") ?? "app"
         let udid = try await simctl.resolveDevice(device)
         let path = try await simctl.getAppContainer(deviceUdid: udid, bundleId: bundleId, container: container)
         return try successResponse(["path": path])
 
     case "sim_add_media":
-        let device = args?.string("device") ?? ""
-        let path = args?.string("path") ?? ""
+        let device = try args?.require("device") ?? ""
+        let path = try args?.require("path") ?? ""
         let udid = try await simctl.resolveDevice(device)
         try await simctl.addMedia(deviceUdid: udid, path: path)
         return try successResponse()
 
     case "sim_biometric":
-        let device = args?.string("device") ?? ""
-        let action = args?.string("action") ?? ""
+        let device = try args?.require("device") ?? ""
+        let action = try args?.require("action") ?? ""
         let udid = try await simctl.resolveDevice(device)
         switch action {
         case "enroll": try await simctl.enrollBiometric(deviceUdid: udid)
@@ -350,22 +350,22 @@ func handleSimctlTool(
         return try successResponse()
 
     case "sim_privacy":
-        let device = args?.string("device") ?? ""
-        let action = args?.string("action") ?? ""
-        let service = args?.string("service") ?? ""
-        let bundleId = args?.string("bundle_id") ?? ""
+        let device = try args?.require("device") ?? ""
+        let action = try args?.require("action") ?? ""
+        let service = try args?.require("service") ?? ""
+        let bundleId = try args?.require("bundle_id") ?? ""
         let udid = try await simctl.resolveDevice(device)
         try await simctl.setPrivacy(deviceUdid: udid, action: action, service: service, bundleId: bundleId)
         return try successResponse()
 
     case "sim_erase":
-        let device = args?.string("device") ?? ""
+        let device = try args?.require("device") ?? ""
         try await simctl.eraseDevice(device)
         return try successResponse()
 
     case "sim_uninstall_app":
-        let device = args?.string("device") ?? ""
-        let bundleId = args?.string("bundle_id") ?? ""
+        let device = try args?.require("device") ?? ""
+        let bundleId = try args?.require("bundle_id") ?? ""
         let udid = try await simctl.resolveDevice(device)
         try await simctl.uninstallApp(deviceUdid: udid, bundleId: bundleId)
         return try successResponse()
@@ -402,28 +402,28 @@ func handleSimctlTool(
         ])
 
     case "sim_set_appearance":
-        let device = args?.string("device") ?? ""
-        let mode = args?.string("mode") ?? "light"
+        let device = try args?.require("device") ?? ""
+        let mode = try args?.require("mode") ?? ""
         let udid = try await simctl.resolveDevice(device)
         try await simctl.setAppearance(deviceUdid: udid, mode: mode)
         return try successResponse()
 
     case "sim_set_locale":
-        let device = args?.string("device") ?? ""
-        let locale = args?.string("locale") ?? ""
-        let language = args?.string("language") ?? ""
+        let device = try args?.require("device") ?? ""
+        let locale = try args?.require("locale") ?? ""
+        let language = try args?.require("language") ?? ""
         let udid = try await simctl.resolveDevice(device)
         try await simctl.setLocale(deviceUdid: udid, locale: locale, language: language)
         return try successResponse(["note": "Device rebooted with new locale"])
 
     case "sim_clear_status_bar":
-        let device = args?.string("device") ?? ""
+        let device = try args?.require("device") ?? ""
         let udid = try await simctl.resolveDevice(device)
         try await simctl.clearStatusBar(deviceUdid: udid)
         return try successResponse()
 
     case "sim_set_status_bar":
-        let device = args?.string("device") ?? ""
+        let device = try args?.require("device") ?? ""
         let udid = try await simctl.resolveDevice(device)
         let batteryLevel = args?.int("battery_level")
         let batteryState = args?.string("battery_state")
@@ -459,17 +459,17 @@ func handleSimctlTool(
         return .init(content: [.text(logs)])
 
     case "sim_open_url":
-        let device = args?.string("device") ?? ""
-        let url = args?.string("url") ?? ""
+        let device = try args?.require("device") ?? ""
+        let url = try args?.require("url") ?? ""
         let udid = try await simctl.resolveDevice(device)
         try await simctl.openURL(deviceUdid: udid, url: url)
         return try successResponse()
 
     case "sim_push_notification":
-        let device = args?.string("device") ?? ""
-        let bundleId = args?.string("bundle_id") ?? ""
-        let title = args?.string("title") ?? ""
-        let body = args?.string("body") ?? ""
+        let device = try args?.require("device") ?? ""
+        let bundleId = try args?.require("bundle_id") ?? ""
+        let title = try args?.require("title") ?? ""
+        let body = try args?.require("body") ?? ""
         let udid = try await simctl.resolveDevice(device)
         try await simctl.sendPushNotification(
             deviceUdid: udid,
@@ -479,9 +479,9 @@ func handleSimctlTool(
         return try successResponse()
 
     case "sim_set_location":
-        let device = args?.string("device") ?? ""
-        let lat = args?.double("latitude") ?? 0
-        let lng = args?.double("longitude") ?? 0
+        let device = try args?.require("device") ?? ""
+        let lat = try args?.requireDouble("latitude")  ?? 0
+        let lng = try args?.requireDouble("longitude") ?? 0
         let udid = try await simctl.resolveDevice(device)
         try await simctl.setLocation(deviceUdid: udid, lat: lat, lng: lng)
         return try successResponse()

@@ -500,7 +500,7 @@
 			repositoryURL = "https://github.com/lastlookdev/xcui-bridge.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.0.5;
+				minimumVersion = 0.0.6;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

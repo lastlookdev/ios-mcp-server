@@ -5,17 +5,18 @@ func xcuitestTools() -> [Tool] {
     [
         Tool(
             name: "ui_start_bridge",
-            description: "Start the XCUITest bridge for interactive app control. Requires device, bundle_id, and runner project config (project_path, scheme, test_identifier). Optionally provide app_project_path/app_scheme to build and install the app before starting.",
+            description: "Start the XCUITest bridge for interactive app control. Only requires device and bundle_id. A built-in runner handles everything automatically. Optionally provide app_project_path and app_scheme to build and install the app first.",
             inputSchema: toolSchema(
                 properties: [
                     "device": .stringProperty("Simulator name (e.g. 'iPhone 17 Pro')"),
-                    "bundle_id": .stringProperty("Bundle ID of the app to control"),
-                    "project_path": .stringProperty("Optional: path to a custom runner .xcodeproj or .xcworkspace"),
-                    "scheme": .stringProperty("Optional: custom UI test scheme name"),
-                    "test_identifier": .stringProperty("Optional: custom test identifier (e.g. MyUITests/MyUITests/testBridge)"),
-                    "app_project_path": .stringProperty("Optional: path to the app's .xcodeproj to build and install before testing"),
-                    "app_scheme": .stringProperty("Optional: the app's scheme to build (required if app_project_path is provided)"),
-                    "is_workspace": .booleanProperty("Set to true if project_path is a .xcworkspace"),
+                    "bundle_id": .stringProperty("Bundle ID of the app to control. Must be the exact bundle identifier — find it from the Xcode project if available, otherwise ask the user. Never guess."),
+                    "app_project_path": .stringProperty("Path to the app's .xcodeproj or .xcworkspace to build and install before testing"),
+                    "app_scheme": .stringProperty("The app's scheme to build (required if app_project_path is provided)"),
+                    "app_is_workspace": .booleanProperty("Set to true if app_project_path is a .xcworkspace"),
+                    "custom_runner_project_path": .stringProperty("Advanced: path to a custom runner .xcodeproj with XCUIBridge integrated. Do not use unless explicitly configured."),
+                    "custom_runner_scheme": .stringProperty("Advanced: custom runner UI test scheme name"),
+                    "custom_runner_test_identifier": .stringProperty("Advanced: custom runner test identifier (e.g. MyUITests/MyUITests/testBridge)"),
+                    "custom_runner_is_workspace": .booleanProperty("Advanced: set to true if custom_runner_project_path is a .xcworkspace"),
                 ],
                 required: ["device", "bundle_id"]
             )
@@ -204,36 +205,37 @@ func handleXCUITestTool(
             return try jsonResponse(["success": false, "message": "Bridge is already running. Stop it first with ui_stop_bridge."])
         }
 
-        let device = args?.string("device") ?? ""
-        let bundleId = args?.string("bundle_id") ?? ""
-        let isWorkspace = args?.bool("is_workspace") ?? false
+        let device = try args?.require("device") ?? ""
+        let bundleId = try args?.require("bundle_id") ?? ""
 
         let deviceUdid = try await simctl.bootDevice(device)
 
         if let appProject = args?.string("app_project_path"), !appProject.isEmpty,
            let appScheme = args?.string("app_scheme"), !appScheme.isEmpty {
+            let appIsWorkspace = args?.bool("app_is_workspace") ?? false
             try await buildAndInstallApp(
                 project: appProject,
                 scheme: appScheme,
-                isWorkspace: isWorkspace,
+                isWorkspace: appIsWorkspace,
                 deviceUdid: deviceUdid,
                 simctl: simctl
             )
         }
 
         let config: BridgeConfig
-        let customPath = args?.string("project_path")
-        let customScheme = args?.string("scheme")
-        let customTest = args?.string("test_identifier")
+        let customPath = args?.string("custom_runner_project_path")
+        let customScheme = args?.string("custom_runner_scheme")
+        let customTest = args?.string("custom_runner_test_identifier")
 
         if let path = customPath, !path.isEmpty,
            let scheme = customScheme, !scheme.isEmpty,
            let test = customTest, !test.isEmpty {
+            let runnerIsWorkspace = args?.bool("custom_runner_is_workspace") ?? false
             config = BridgeConfig(
                 projectPath: path,
                 scheme: scheme,
                 testIdentifier: test,
-                isWorkspace: isWorkspace
+                isWorkspace: runnerIsWorkspace
             )
         } else {
             let runner = RunnerProject()
@@ -253,17 +255,17 @@ func handleXCUITestTool(
         return try await bridgeCommand("tap", params: params, bridge: bridge)
 
     case "ui_type":
-        var params: [String: Any] = ["text": args?.string("text") ?? ""]
+        var params: [String: Any] = ["text": try args?.require("text") ?? ""]
         if let fieldId = args?.string("field_identifier") { params["identifier"] = fieldId }
         return try await bridgeCommand("type", params: params, bridge: bridge)
 
     case "ui_swipe":
-        var params: [String: Any] = ["direction": args?.string("direction") ?? ""]
+        var params: [String: Any] = ["direction": try args?.require("direction") ?? ""]
         if let element = args?.string("element") { params["element"] = element }
         return try await bridgeCommand("swipe", params: params, bridge: bridge)
 
     case "ui_scroll":
-        var params: [String: Any] = ["direction": args?.string("direction") ?? ""]
+        var params: [String: Any] = ["direction": try args?.require("direction") ?? ""]
         if let element = args?.string("element") { params["element"] = element }
         return try await bridgeCommand("scroll", params: params, bridge: bridge)
 
@@ -364,7 +366,6 @@ private func buildAndInstallApp(
         "build",
         isWorkspace ? "-workspace" : "-project", project,
         "-scheme", scheme,
-        "-sdk", "iphonesimulator",
         "-destination", "platform=iOS Simulator,id=\(deviceUdid)",
         "-quiet",
     ]
@@ -386,7 +387,7 @@ private func buildAndInstallApp(
     settingsProc.arguments = [
         isWorkspace ? "-workspace" : "-project", project,
         "-scheme", scheme,
-        "-sdk", "iphonesimulator",
+        "-destination", "platform=iOS Simulator,id=\(deviceUdid)",
         "-showBuildSettings",
     ]
     let settingsPipe = Pipe()
