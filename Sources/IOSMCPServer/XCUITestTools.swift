@@ -10,14 +10,14 @@ func xcuitestTools() -> [Tool] {
                 properties: [
                     "device": .stringProperty("Simulator name (e.g. 'iPhone 17 Pro')"),
                     "bundle_id": .stringProperty("Bundle ID of the app to control"),
-                    "project_path": .stringProperty("Path to the runner .xcodeproj or .xcworkspace"),
-                    "scheme": .stringProperty("UI test scheme name"),
-                    "test_identifier": .stringProperty("Test identifier (e.g. RunnerUITests/RunnerUITests/testBridge)"),
+                    "project_path": .stringProperty("Optional: path to a custom runner .xcodeproj or .xcworkspace"),
+                    "scheme": .stringProperty("Optional: custom UI test scheme name"),
+                    "test_identifier": .stringProperty("Optional: custom test identifier (e.g. MyUITests/MyUITests/testBridge)"),
                     "app_project_path": .stringProperty("Optional: path to the app's .xcodeproj to build and install before testing"),
                     "app_scheme": .stringProperty("Optional: the app's scheme to build (required if app_project_path is provided)"),
                     "is_workspace": .booleanProperty("Set to true if project_path is a .xcworkspace"),
                 ],
-                required: ["device", "bundle_id", "project_path", "scheme", "test_identifier"]
+                required: ["device", "bundle_id"]
             )
         ),
         Tool(
@@ -206,9 +206,6 @@ func handleXCUITestTool(
 
         let device = args?.string("device") ?? ""
         let bundleId = args?.string("bundle_id") ?? ""
-        let projectPath = args?.string("project_path") ?? ""
-        let scheme = args?.string("scheme") ?? ""
-        let testIdentifier = args?.string("test_identifier") ?? ""
         let isWorkspace = args?.bool("is_workspace") ?? false
 
         let deviceUdid = try await simctl.bootDevice(device)
@@ -224,12 +221,25 @@ func handleXCUITestTool(
             )
         }
 
-        let config = BridgeConfig(
-            projectPath: projectPath,
-            scheme: scheme,
-            testIdentifier: testIdentifier,
-            isWorkspace: isWorkspace
-        )
+        let config: BridgeConfig
+        let customPath = args?.string("project_path")
+        let customScheme = args?.string("scheme")
+        let customTest = args?.string("test_identifier")
+
+        if let path = customPath, !path.isEmpty,
+           let scheme = customScheme, !scheme.isEmpty,
+           let test = customTest, !test.isEmpty {
+            config = BridgeConfig(
+                projectPath: path,
+                scheme: scheme,
+                testIdentifier: test,
+                isWorkspace: isWorkspace
+            )
+        } else {
+            let runner = RunnerProject()
+            try await runner.ensureReady()
+            config = runner.bridgeConfig()
+        }
 
         try await bridge.start(deviceName: deviceUdid, bundleId: bundleId, config: config)
         return try successResponse(["message": "Bridge started for \(bundleId) on \(device)"])

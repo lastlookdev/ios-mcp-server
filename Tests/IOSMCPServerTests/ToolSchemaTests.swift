@@ -108,7 +108,7 @@ struct ToolSchemaTests {
         #expect(requiredNames.contains("device"))
     }
 
-    @Test("ui_start_bridge requires device, bundle_id, and runner config")
+    @Test("ui_start_bridge requires device and bundle_id")
     func bridgeRequiredFields() {
         let tool = xcuitestTools().first(where: { $0.name == "ui_start_bridge" })!
         guard case .object(let schema) = tool.inputSchema,
@@ -122,8 +122,5 @@ struct ToolSchemaTests {
         }
         #expect(requiredNames.contains("device"))
         #expect(requiredNames.contains("bundle_id"))
-        #expect(requiredNames.contains("project_path"))
-        #expect(requiredNames.contains("scheme"))
-        #expect(requiredNames.contains("test_identifier"))
     }
 }
