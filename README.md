@@ -1,6 +1,6 @@
 # ios-mcp-server
 
-MCP server that gives Claude the ability to control iOS simulators and automate app UI through XCUITest. It handles everything — booting simulators, installing apps, taking screenshots, reading the screen, tapping buttons, typing text, and more — across 39 tools.
+MCP server that gives Claude Code and Codex the ability to control iOS simulators and automate app UI through XCUITest. It handles everything — booting simulators, installing apps, taking screenshots, reading the screen, tapping buttons, typing text, and more — across 40 tools.
 
 ## Requirements
 
@@ -17,23 +17,27 @@ ios-mcp-server install
 That's it. The `install` command handles everything:
 - Starts a background service via launchd
 - Registers the server in Claude Code's `~/.claude.json`
+- Registers the server in Codex's `~/.codex/config.toml`
 - Server runs at `http://localhost:9741/mcp`
 
-**You may need to restart Claude Code for the new MCP server to be picked up.**
+**You may need to restart Claude Code or Codex for the new MCP server to be picked up.**
 
 ## Commands
 
 ```
 ios-mcp-server              # Run in foreground (default port 9741)
 ios-mcp-server start -p 8080  # Run on a custom port
-ios-mcp-server install      # Install as background service + add to Claude Code
-ios-mcp-server uninstall    # Remove service + Claude Code config
+ios-mcp-server install      # Install service + add to Claude Code and Codex
+ios-mcp-server install --client codex   # Install service + add only to Codex
+ios-mcp-server install --client claude  # Install service + add only to Claude Code
+ios-mcp-server uninstall    # Remove service + Claude Code and Codex config
+ios-mcp-server uninstall --client codex # Remove only Codex config, leave service installed
 ios-mcp-server status       # Check if running
 ```
 
 ## Example Prompts
 
-Once installed, you can ask Claude things like:
+Once installed, you can ask Claude Code or Codex things like:
 
 - "Boot the iPhone 17 Pro simulator and take a screenshot"
 - "Read the screen and tap the Login button"
@@ -42,13 +46,13 @@ Once installed, you can ask Claude things like:
 - "Send a push notification with title 'Hello' to my app"
 - "Start recording the simulator screen"
 
-For UI automation (tapping, typing, reading the screen), Claude will use the XCUITest bridge. For simulator management (boot, install, screenshot, permissions), everything works directly.
+For UI automation (tapping, typing, reading the screen), your MCP client will use the XCUITest bridge. For simulator management (boot, install, screenshot, permissions), everything works directly.
 
 ## Setup
 
 All tools work out of the box after running `ios-mcp-server install`. The UI automation tools (`ui_*`) use a built-in runner project that ships with the server — no configuration needed.
 
-If you want to use a custom XCUITest runner instead of the built-in one, integrate the [XCUIBridge](https://github.com/lastlookdev/xcui-bridge) library into your own XCUITest target, then add the runner config to your project's `CLAUDE.md`:
+If you want to use a custom XCUITest runner instead of the built-in one, integrate the [XCUIBridge](https://github.com/lastlookdev/xcui-bridge) library into your own XCUITest target, then add the runner config to your project's agent instructions:
 
 ```markdown
 When using ui_start_bridge, use this runner configuration:
