@@ -4,6 +4,34 @@ import MCP
 @preconcurrency import NIOPosix
 @preconcurrency import NIOHTTP1
 
+package func isEmptySSEPrimingEvent(_ data: Data) -> Bool {
+    guard let text = String(data: data, encoding: .utf8) else { return false }
+
+    let lines = text
+        .replacingOccurrences(of: "\r\n", with: "\n")
+        .split(separator: "\n", omittingEmptySubsequences: false)
+        .map(String.init)
+
+    var hasID = false
+    var hasEmptyData = false
+
+    for line in lines {
+        if line.isEmpty {
+            continue
+        } else if line.hasPrefix("id: ") {
+            hasID = true
+        } else if line.hasPrefix("retry: ") {
+            continue
+        } else if line == "data:" || line == "data: " {
+            hasEmptyData = true
+        } else {
+            return false
+        }
+    }
+
+    return hasID && hasEmptyData
+}
+
 package actor MCPHTTPServer {
     private let host: String
     private let port: Int
@@ -192,6 +220,7 @@ private final class Handler: ChannelInboundHandler, @unchecked Sendable {
 
             do {
                 for try await chunk in stream {
+                    guard !isEmptySSEPrimingEvent(chunk) else { continue }
                     eventLoop.execute {
                         var buffer = ctx.channel.allocator.buffer(capacity: chunk.count)
                         buffer.writeBytes(chunk)
