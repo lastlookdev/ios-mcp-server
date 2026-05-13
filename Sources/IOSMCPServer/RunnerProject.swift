@@ -4,7 +4,7 @@ final class RunnerProject {
 
     static let scheme = "RunnerUITests"
     static let testIdentifier = "RunnerUITests/RunnerUITests/testBridge"
-    static let runnerVersion = "1"
+    static let runnerVersion = "2"
 
     var basePath: String {
         let appSupport = FileManager.default.urls(
