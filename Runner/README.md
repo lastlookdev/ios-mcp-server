@@ -13,15 +13,27 @@ The MCP server runs `xcodebuild test` against this project to establish a bridge
 
 ## Usage
 
-Pass this project's path to `ui_start_bridge`:
+Register this project as a custom runner on an app profile:
+
+```sh
+ios-mcp-server app add \
+  --bundle-id com.example.App \
+  --project /path/to/App/App.xcodeproj \
+  --scheme App \
+  --runner-project /path/to/Runner/Runner.xcodeproj \
+  --runner-scheme RunnerUITests \
+  --runner-test-identifier RunnerUITests/RunnerUITests/testBridge
+```
+
+Or pass this project's path directly to `ui_start_bridge`:
 
 ```
 ui_start_bridge(
   device: "iPhone 17 Pro",
   bundle_id: "com.example.App",
-  project_path: "/path/to/Runner/Runner.xcodeproj",
-  scheme: "RunnerUITests",
-  test_identifier: "RunnerUITests/RunnerUITests/testBridge"
+  custom_runner_project_path: "/path/to/Runner/Runner.xcodeproj",
+  custom_runner_scheme: "RunnerUITests",
+  custom_runner_test_identifier: "RunnerUITests/RunnerUITests/testBridge"
 )
 ```
 

@@ -33,6 +33,8 @@ ios-mcp-server install --client claude  # Install service + add only to Claude C
 ios-mcp-server uninstall    # Remove service + Claude Code and Codex config
 ios-mcp-server uninstall --client codex # Remove only Codex config, leave service installed
 ios-mcp-server status       # Check if running
+ios-mcp-server app add --bundle-id com.example.App --project /path/to/MyApp.xcodeproj --scheme MyApp
+ios-mcp-server app list
 ```
 
 ## Example Prompts
@@ -50,16 +52,45 @@ For UI automation (tapping, typing, reading the screen), your MCP client will us
 
 ## Setup
 
-All tools work out of the box after running `ios-mcp-server install`. The UI automation tools (`ui_*`) use a built-in runner project that ships with the server — no configuration needed.
+All tools work out of the box after running `ios-mcp-server install`. The UI automation tools (`ui_*`) use a built-in runner project that ships with the server, so an app that is already installed in the simulator needs no project configuration.
 
-If you want to use a custom XCUITest runner instead of the built-in one, integrate the [XCUIBridge](https://github.com/lastlookdev/xcui-bridge) library into your own XCUITest target, then add the runner config to your project's agent instructions:
+If you want agents to build and install your app automatically before UI automation, register the app once:
 
-```markdown
-When using ui_start_bridge, use this runner configuration:
-- project_path: /path/to/MyRunner.xcodeproj
-- scheme: MyUITests
-- test_identifier: MyUITests/MyUITests/testBridge
+```sh
+ios-mcp-server app add \
+  --bundle-id com.example.App \
+  --project /path/to/MyApp.xcodeproj \
+  --scheme MyApp
 ```
+
+After that, agents still use the same minimal bridge call:
+
+```json
+{
+  "device": "iPhone 17 Pro",
+  "bundle_id": "com.example.App"
+}
+```
+
+Custom runners are optional. Use one only when you need app-specific UI test setup before the bridge starts. First add [XCUIBridge](https://github.com/lastlookdev/xcui-bridge) to an iOS UI test target, then save the runner details on the app profile:
+
+```sh
+ios-mcp-server app add \
+  --bundle-id com.example.App \
+  --project /path/to/MyApp.xcodeproj \
+  --scheme MyApp \
+  --runner-scheme MyAppUITests \
+  --runner-test-identifier MyAppUITests/MyBridgeTests/testBridge
+```
+
+A custom runner needs:
+
+- An iOS UI test target that depends on `XCUIBridge`
+- A `BridgeTestCase` subclass, for example `final class MyBridgeTests: BridgeTestCase {}`
+- A shared Xcode scheme whose Test action includes that UI test target
+- The Xcode `-only-testing` identifier for the bridge test, usually `UITestTarget/ClassName/testBridge`
+
+If the app project is a workspace, add `--workspace`. If the runner lives in a different project or workspace, also pass `--runner-project /path/to/Runner.xcodeproj` and `--runner-workspace` when needed. One-off overrides are still supported with `custom_runner_project_path`, `custom_runner_scheme`, `custom_runner_test_identifier`, and optionally `custom_runner_is_workspace` on `ui_start_bridge`, but saved app profiles are the recommended path.
 
 ## MCP Tools
 
