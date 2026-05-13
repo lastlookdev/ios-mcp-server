@@ -30,7 +30,7 @@ struct IOSMCPServerCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "ios-mcp-server",
         abstract: "iOS MCP server for controlling simulators and apps via XCUITest",
-        subcommands: [Start.self, Install.self, Uninstall.self, Status.self],
+        subcommands: [Start.self, Install.self, Uninstall.self, Status.self, App.self],
         defaultSubcommand: Start.self
     )
 }
@@ -159,6 +159,7 @@ struct Status: ParsableCommand {
             print("Running:   no")
             print("Claude:    \(claudeConfigHasServer() ? "configured" : "not configured")")
             print("Codex:     \(codexConfigHasServer() ? "configured" : "not configured")")
+            print("Apps:      \(savedAppCountDescription())")
             return
         }
 
@@ -178,6 +179,147 @@ struct Status: ParsableCommand {
         print("URL:       http://localhost:\(port)/mcp")
         print("Claude:    \(claudeConfigHasServer() ? "configured" : "not configured")")
         print("Codex:     \(codexConfigHasServer() ? "configured" : "not configured")")
+        print("Apps:      \(savedAppCountDescription())")
+    }
+}
+
+// MARK: - Saved App Config
+
+struct App: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "app",
+        abstract: "Manage saved app build and runner configs",
+        subcommands: [AppAdd.self, AppList.self, AppRemove.self]
+    )
+}
+
+struct AppAdd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "add",
+        abstract: "Save app build settings and optional custom runner settings"
+    )
+
+    @Option(help: "Bundle ID of the app")
+    var bundleId: String
+
+    @Option(help: "Path to the app .xcodeproj or .xcworkspace")
+    var project: String
+
+    @Option(help: "App scheme to build and install before starting the bridge")
+    var scheme: String
+
+    @Flag(help: "Treat --project as a .xcworkspace")
+    var workspace = false
+
+    @Option(help: "Optional custom runner .xcodeproj or .xcworkspace. Defaults to --project when runner options are provided.")
+    var runnerProject: String?
+
+    @Option(help: "Optional custom runner scheme whose Test action includes the bridge UI test target")
+    var runnerScheme: String?
+
+    @Option(help: "Optional custom runner only-testing identifier, e.g. MyUITests/MyBridgeTests/testBridge")
+    var runnerTestIdentifier: String?
+
+    @Flag(help: "Treat --runner-project as a .xcworkspace")
+    var runnerWorkspace = false
+
+    func run() throws {
+        let appProjectPath = try validatedPath(expandedPath(project), label: "App project")
+        let runner = try resolvedRunner(appProjectPath: appProjectPath)
+
+        let config = SavedAppConfiguration(
+            app: SavedAppBuild(
+                projectPath: appProjectPath,
+                scheme: scheme,
+                isWorkspace: workspace || isWorkspacePath(appProjectPath)
+            ),
+            runner: runner
+        )
+
+        try AppRegistry().set(config, for: bundleId)
+
+        print("Saved app profile for \(bundleId).")
+        print("  App:    \(appProjectPath)")
+        print("  Scheme: \(scheme)")
+        if let runner {
+            print("  Runner: \(runner.projectPath)")
+            print("  Runner scheme: \(runner.scheme)")
+            print("  Runner test:   \(runner.testIdentifier)")
+        } else {
+            print("  Runner: built-in")
+        }
+    }
+
+    private func resolvedRunner(appProjectPath: String) throws -> SavedCustomRunner? {
+        let hasRunnerProject = runnerProject?.isEmpty == false
+        let hasRunnerScheme = runnerScheme?.isEmpty == false
+        let hasRunnerTest = runnerTestIdentifier?.isEmpty == false
+
+        guard hasRunnerProject || hasRunnerScheme || hasRunnerTest else { return nil }
+        guard let runnerScheme, !runnerScheme.isEmpty,
+              let runnerTestIdentifier, !runnerTestIdentifier.isEmpty else {
+            throw ValidationError("--runner-scheme and --runner-test-identifier must be provided together.")
+        }
+
+        let projectPath = try validatedPath(
+            expandedPath(runnerProject ?? appProjectPath),
+            label: "Runner project"
+        )
+        return SavedCustomRunner(
+            projectPath: projectPath,
+            scheme: runnerScheme,
+            testIdentifier: runnerTestIdentifier,
+            isWorkspace: runnerWorkspace || isWorkspacePath(projectPath)
+        )
+    }
+}
+
+struct AppList: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "list",
+        abstract: "List saved app profiles"
+    )
+
+    func run() throws {
+        let configs = try AppRegistry().list()
+        guard !configs.isEmpty else {
+            print("No app profiles configured.")
+            return
+        }
+
+        for item in configs {
+            let config = item.configuration
+            print(item.bundleId)
+            if let app = config.app {
+                print("  App:    \(app.projectPath)")
+                print("  App scheme: \(app.scheme)")
+            }
+            if let runner = config.runner {
+                print("  Runner: \(runner.projectPath)")
+                print("  Runner scheme: \(runner.scheme)")
+                print("  Runner test:   \(runner.testIdentifier)")
+            } else {
+                print("  Runner: built-in")
+            }
+        }
+    }
+}
+
+struct AppRemove: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "remove",
+        abstract: "Remove a saved app profile"
+    )
+
+    @Option(help: "Bundle ID whose saved app profile should be removed")
+    var bundleId: String
+
+    func run() throws {
+        if try AppRegistry().remove(bundleId: bundleId) {
+            print("Removed app profile for \(bundleId).")
+        } else {
+            print("No app profile was configured for \(bundleId).")
+        }
     }
 }
 
@@ -196,6 +338,14 @@ private func claudeConfigPath() -> String {
 
 private func codexConfigPath() -> String {
     homeDirectory() + "/.codex/config.toml"
+}
+
+private func savedAppCountDescription() -> String {
+    do {
+        return "\(try AppRegistry().list().count)"
+    } catch {
+        return "unavailable"
+    }
 }
 
 private func installedServicePort() -> Int? {
@@ -331,6 +481,27 @@ private func tomlEscaped(_ value: String) -> String {
     value
         .replacingOccurrences(of: "\\", with: "\\\\")
         .replacingOccurrences(of: "\"", with: "\\\"")
+}
+
+private func expandedPath(_ path: String) -> String {
+    if path == "~" {
+        return homeDirectory()
+    }
+    if path.hasPrefix("~/") {
+        return homeDirectory() + String(path.dropFirst())
+    }
+    return URL(fileURLWithPath: path).standardized.path
+}
+
+private func validatedPath(_ path: String, label: String) throws -> String {
+    guard FileManager.default.fileExists(atPath: path) else {
+        throw ValidationError("\(label) does not exist: \(path)")
+    }
+    return path
+}
+
+private func isWorkspacePath(_ path: String) -> Bool {
+    path.hasSuffix(".xcworkspace")
 }
 
 @discardableResult

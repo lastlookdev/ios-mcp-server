@@ -5,7 +5,7 @@ func xcuitestTools() -> [Tool] {
     [
         Tool(
             name: "ui_start_bridge",
-            description: "Start the XCUITest bridge for interactive app control. Only requires device and bundle_id. A built-in runner handles everything automatically. Optionally provide app_project_path and app_scheme to build and install the app first.",
+            description: "Start the XCUITest bridge for interactive app control. Only requires device and bundle_id. A built-in runner handles everything automatically. Saved app profiles registered with the CLI are picked up by bundle_id. Optionally provide app_project_path and app_scheme to build and install the app first.",
             inputSchema: toolSchema(
                 properties: [
                     "device": .stringProperty("Simulator name (e.g. 'iPhone 17 Pro')"),
@@ -13,9 +13,9 @@ func xcuitestTools() -> [Tool] {
                     "app_project_path": .stringProperty("Path to the app's .xcodeproj or .xcworkspace to build and install before testing"),
                     "app_scheme": .stringProperty("The app's scheme to build (required if app_project_path is provided)"),
                     "app_is_workspace": .booleanProperty("Set to true if app_project_path is a .xcworkspace"),
-                    "custom_runner_project_path": .stringProperty("Advanced: path to a custom runner .xcodeproj with XCUIBridge integrated. Do not use unless explicitly configured."),
-                    "custom_runner_scheme": .stringProperty("Advanced: custom runner UI test scheme name"),
-                    "custom_runner_test_identifier": .stringProperty("Advanced: custom runner test identifier (e.g. MyUITests/MyUITests/testBridge)"),
+                    "custom_runner_project_path": .stringProperty("Advanced: path to a custom runner .xcodeproj or .xcworkspace containing an XCUIBridge UI test target. Provide with custom_runner_scheme and custom_runner_test_identifier."),
+                    "custom_runner_scheme": .stringProperty("Advanced: shared Xcode scheme whose Test action includes the custom bridge UI test target."),
+                    "custom_runner_test_identifier": .stringProperty("Advanced: Xcode only-testing identifier for the BridgeTestCase subclass (e.g. MyUITests/MyBridgeTests/testBridge)."),
                     "custom_runner_is_workspace": .booleanProperty("Advanced: set to true if custom_runner_project_path is a .xcworkspace"),
                 ],
                 required: ["device", "bundle_id"]
@@ -209,42 +209,35 @@ func handleXCUITestTool(
         let bundleId = try args?.require("bundle_id") ?? ""
 
         let deviceUdid = try await simctl.bootDevice(device)
+        let savedAppConfig = try AppRegistry().configuration(for: bundleId)
 
-        if let appProject = args?.string("app_project_path"), !appProject.isEmpty,
-           let appScheme = args?.string("app_scheme"), !appScheme.isEmpty {
-            let appIsWorkspace = args?.bool("app_is_workspace") ?? false
+        if let appBuild = try resolveAppBuild(args: args, saved: savedAppConfig?.app) {
             try await buildAndInstallApp(
-                project: appProject,
-                scheme: appScheme,
-                isWorkspace: appIsWorkspace,
+                project: appBuild.projectPath,
+                scheme: appBuild.scheme,
+                isWorkspace: appBuild.isWorkspace,
                 deviceUdid: deviceUdid,
                 simctl: simctl
             )
         }
 
         let config: BridgeConfig
-        let customPath = args?.string("custom_runner_project_path")
-        let customScheme = args?.string("custom_runner_scheme")
-        let customTest = args?.string("custom_runner_test_identifier")
-
-        if let path = customPath, !path.isEmpty,
-           let scheme = customScheme, !scheme.isEmpty,
-           let test = customTest, !test.isEmpty {
-            let runnerIsWorkspace = args?.bool("custom_runner_is_workspace") ?? false
-            config = BridgeConfig(
-                projectPath: path,
-                scheme: scheme,
-                testIdentifier: test,
-                isWorkspace: runnerIsWorkspace
-            )
+        let runnerSource: String
+        if let customRunner = try resolveCustomRunner(args: args, saved: savedAppConfig?.runner) {
+            config = customRunner.runner.bridgeConfig
+            runnerSource = customRunner.source
         } else {
             let runner = RunnerProject()
             try await runner.ensureReady()
             config = runner.bridgeConfig()
+            runnerSource = "built-in"
         }
 
         try await bridge.start(deviceName: deviceUdid, bundleId: bundleId, config: config)
-        return try successResponse(["message": "Bridge started for \(bundleId) on \(device)"])
+        return try successResponse([
+            "message": "Bridge started for \(bundleId) on \(device)",
+            "runner": runnerSource,
+        ])
 
     case "ui_tap":
         var params: [String: Any] = [:]
@@ -351,6 +344,64 @@ func handleXCUITestTool(
     }
 }
 
+private func resolveAppBuild(
+    args: [String: Value]?,
+    saved: SavedAppBuild?
+) throws -> SavedAppBuild? {
+    let projectPath = args?.string("app_project_path") ?? ""
+    let scheme = args?.string("app_scheme") ?? ""
+    let hasInlineConfig = !projectPath.isEmpty || !scheme.isEmpty
+
+    if hasInlineConfig {
+        guard !projectPath.isEmpty, !scheme.isEmpty else {
+            throw SimctlError.commandFailed("app_project_path and app_scheme must be provided together.")
+        }
+
+        return SavedAppBuild(
+            projectPath: projectPath,
+            scheme: scheme,
+            isWorkspace: args?.bool("app_is_workspace") ?? isWorkspacePath(projectPath)
+        )
+    }
+
+    return saved
+}
+
+private func resolveCustomRunner(
+    args: [String: Value]?,
+    saved: SavedCustomRunner?
+) throws -> (runner: SavedCustomRunner, source: String)? {
+    let projectPath = args?.string("custom_runner_project_path") ?? ""
+    let scheme = args?.string("custom_runner_scheme") ?? ""
+    let testIdentifier = args?.string("custom_runner_test_identifier") ?? ""
+    let hasInlineConfig = !projectPath.isEmpty || !scheme.isEmpty || !testIdentifier.isEmpty
+
+    if hasInlineConfig {
+        guard !projectPath.isEmpty, !scheme.isEmpty, !testIdentifier.isEmpty else {
+            throw SimctlError.commandFailed(
+                "custom_runner_project_path, custom_runner_scheme, and custom_runner_test_identifier must be provided together."
+            )
+        }
+
+        return (
+            SavedCustomRunner(
+                projectPath: projectPath,
+                scheme: scheme,
+                testIdentifier: testIdentifier,
+                isWorkspace: args?.bool("custom_runner_is_workspace") ?? isWorkspacePath(projectPath)
+            ),
+            "inline-custom"
+        )
+    }
+
+    guard let saved else { return nil }
+    return (saved, "saved-custom")
+}
+
+private func isWorkspacePath(_ path: String) -> Bool {
+    path.hasSuffix(".xcworkspace")
+}
+
 // MARK: - App Build Helper
 
 private func buildAndInstallApp(
@@ -409,10 +460,14 @@ private func buildAndInstallApp(
         }
     }
 
-    if !builtProductsDir.isEmpty && !productName.isEmpty {
-        let appPath = builtProductsDir + "/" + productName
-        if FileManager.default.fileExists(atPath: appPath) {
-            try await simctl.installApp(deviceUdid: deviceUdid, appPath: appPath)
-        }
+    guard !builtProductsDir.isEmpty, !productName.isEmpty else {
+        throw SimctlError.commandFailed("Could not locate built app product in xcodebuild settings output.")
     }
+
+    let appPath = builtProductsDir + "/" + productName
+    guard FileManager.default.fileExists(atPath: appPath) else {
+        throw SimctlError.commandFailed("Built app was not found at expected path: \(appPath)")
+    }
+
+    try await simctl.installApp(deviceUdid: deviceUdid, appPath: appPath)
 }
