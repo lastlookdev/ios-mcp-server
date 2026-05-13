@@ -1,9 +1,11 @@
 import MCP
 
+private let sharedXCUITestBridge = XCUITestBridge()
+
 package func createIOSMCPServer() async -> Server {
     let simctl = SimctlService()
     let screenshotService = ScreenshotService(simctl: simctl)
-    let bridge = XCUITestBridge()
+    let bridge = sharedXCUITestBridge
 
     let server = Server(
         name: "ios-mcp-server",
