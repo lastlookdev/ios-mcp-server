@@ -98,6 +98,103 @@ extension Process {
     }
 }
 
+struct ProcessResult: Sendable {
+    let status: Int32
+    let output: String
+}
+
+func processEnvironment(overrides: [String: String] = [:]) -> [String: String] {
+    var environment = ProcessInfo.processInfo.environment
+    for (key, value) in overrides {
+        environment[key] = value
+    }
+
+    environment["PATH"] = normalizedExecutablePath(environment["PATH"])
+    environment["HOME"] = environment["HOME"] ?? NSHomeDirectory()
+    environment["USER"] = environment["USER"] ?? NSUserName()
+    environment["LOGNAME"] = environment["LOGNAME"] ?? NSUserName()
+
+    if environment["GIT_SSH"].isEmptyOrNil,
+       environment["GIT_SSH_COMMAND"].isEmptyOrNil,
+       FileManager.default.isExecutableFile(atPath: "/usr/bin/ssh") {
+        environment["GIT_SSH_COMMAND"] = "/usr/bin/ssh"
+    }
+
+    return environment
+}
+
+func runProcess(
+    executable: String,
+    arguments: [String],
+    environment: [String: String]? = nil
+) async throws -> ProcessResult {
+    let proc = Process()
+    proc.executableURL = URL(fileURLWithPath: executable)
+    proc.arguments = arguments
+    proc.environment = processEnvironment(overrides: environment ?? [:])
+    proc.standardInput = FileHandle.nullDevice
+
+    let pipe = Pipe()
+    proc.standardOutput = pipe
+    proc.standardError = pipe
+
+    async let outputData = pipe.fileHandleForReading.readToEnd()
+    try proc.run()
+    await proc.waitUntilExitAsync()
+
+    let data = try await outputData ?? Data()
+    return ProcessResult(
+        status: proc.terminationStatus,
+        output: String(data: data, encoding: .utf8) ?? ""
+    )
+}
+
+struct TimeoutError: Error, LocalizedError {
+    let seconds: TimeInterval
+    var errorDescription: String? { "Timed out after \(Int(seconds)) seconds" }
+}
+
+func withTimeout<T: Sendable>(
+    seconds: TimeInterval,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            try await operation()
+        }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw TimeoutError(seconds: seconds)
+        }
+
+        guard let result = try await group.next() else {
+            throw TimeoutError(seconds: seconds)
+        }
+        group.cancelAll()
+        return result
+    }
+}
+
+private func normalizedExecutablePath(_ current: String?) -> String {
+    let defaults = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+    var seen: Set<String> = []
+    var paths = (current ?? "")
+        .split(separator: ":")
+        .map(String.init)
+        .filter { !$0.isEmpty }
+
+    paths.append(contentsOf: defaults)
+    return paths
+        .filter { seen.insert($0).inserted }
+        .joined(separator: ":")
+}
+
+private extension Optional where Wrapped == String {
+    var isEmptyOrNil: Bool {
+        self?.isEmpty ?? true
+    }
+}
+
 // MARK: - Bridge Response Helper
 
 func bridgeCommand(

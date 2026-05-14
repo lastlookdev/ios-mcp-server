@@ -64,7 +64,7 @@ actor XCUITestBridge {
 
         var env = ProcessInfo.processInfo.environment
         env["TARGET_BUNDLE_ID"] = bundleId
-        proc.environment = env
+        proc.environment = processEnvironment(overrides: env)
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

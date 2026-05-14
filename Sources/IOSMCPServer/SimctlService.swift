@@ -41,6 +41,7 @@ actor SimctlService {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         process.arguments = ["simctl"] + args
+        process.environment = processEnvironment()
 
         let pipe = Pipe()
         let errPipe = Pipe()

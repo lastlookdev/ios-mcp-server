@@ -1,6 +1,6 @@
 # ios-mcp-server
 
-MCP server that gives Claude Code and Codex the ability to control iOS simulators and automate app UI through XCUITest. It handles everything — booting simulators, installing apps, taking screenshots, reading the screen, tapping buttons, typing text, and more — across 40 tools.
+MCP server that gives Claude Code and Codex the ability to control iOS simulators and automate app UI through XCUITest. It handles everything — booting simulators, building and installing apps, taking screenshots, reading the screen, tapping buttons, typing text, and more — across 40 tools.
 
 ## Requirements
 
@@ -33,7 +33,7 @@ ios-mcp-server install --client claude  # Install service + add only to Claude C
 ios-mcp-server uninstall    # Remove service + Claude Code and Codex config
 ios-mcp-server uninstall --client codex # Remove only Codex config, leave service installed
 ios-mcp-server status       # Check if running
-ios-mcp-server app add --bundle-id com.example.App --project /path/to/MyApp.xcodeproj --scheme MyApp
+ios-mcp-server app add --bundle-id com.example.App --project /path/to/MyApp.xcodeproj --scheme MyApp # Optional manual profile
 ios-mcp-server app list
 ```
 
@@ -42,6 +42,7 @@ ios-mcp-server app list
 Once installed, you can ask Claude Code or Codex things like:
 
 - "Boot the iPhone 17 Pro simulator and take a screenshot"
+- "Start my app on the iPhone 17 Pro simulator and tap through the login flow"
 - "Read the screen and tap the Login button"
 - "Set the simulator to dark mode and change the locale to Japanese"
 - "Grant camera permissions to com.example.app"
@@ -52,9 +53,18 @@ For UI automation (tapping, typing, reading the screen), your MCP client will us
 
 ## Setup
 
-All tools work out of the box after running `ios-mcp-server install`. The UI automation tools (`ui_*`) use a built-in runner project that ships with the server, so an app that is already installed in the simulator needs no project configuration.
+All tools work out of the box after running `ios-mcp-server install`. For normal app flows, agents should start the XCUITest bridge instead of running `xcodebuild` manually:
 
-If you want agents to build and install your app automatically before UI automation, register the app once:
+```json
+{
+  "device": "iPhone 17 Pro",
+  "bundle_id": "com.example.App"
+}
+```
+
+The agent can pass project and scheme details directly to `ui_start_bridge` when it already knows them. If those details are missing, the server asks the MCP client for workspace roots and discovers the matching Xcode project and scheme from the bundle ID. The bridge start flow boots the simulator, builds and installs the app from the background service when needed, launches the app, and starts the built-in XCUITest runner.
+
+Manual app profiles are optional. Use `app add` only when your client does not provide workspace roots, auto-discovery cannot identify the right scheme, or you want to pin a specific project/scheme:
 
 ```sh
 ios-mcp-server app add \
@@ -63,7 +73,7 @@ ios-mcp-server app add \
   --scheme MyApp
 ```
 
-After that, agents still use the same minimal bridge call:
+After that, agents still use the same minimal tool arguments:
 
 ```json
 {

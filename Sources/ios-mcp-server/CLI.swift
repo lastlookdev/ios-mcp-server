@@ -80,6 +80,15 @@ struct Install: AsyncParsableCommand {
                 <string>--port</string>
                 <string>\(port)</string>
             </array>
+            <key>EnvironmentVariables</key>
+            <dict>
+                <key>PATH</key>
+                <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+                <key>HOME</key>
+                <string>\(NSHomeDirectory())</string>
+                <key>GIT_SSH_COMMAND</key>
+                <string>/usr/bin/ssh</string>
+            </dict>
             <key>RunAtLoad</key>
             <true/>
             <key>KeepAlive</key>

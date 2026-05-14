@@ -123,4 +123,5 @@ struct ToolSchemaTests {
         #expect(requiredNames.contains("device"))
         #expect(requiredNames.contains("bundle_id"))
     }
+
 }

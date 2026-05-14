@@ -9,7 +9,7 @@ package func createIOSMCPServer() async -> Server {
 
     let server = Server(
         name: "ios-mcp-server",
-        version: "0.0.1",
+        version: "0.1.1",
         capabilities: .init(tools: .init(listChanged: false))
     )
 
@@ -37,7 +37,8 @@ package func createIOSMCPServer() async -> Server {
                     name: params.name,
                     args: params.arguments,
                     bridge: bridge,
-                    simctl: simctl
+                    simctl: simctl,
+                    workspaceRoots: { await clientWorkspaceRoots(from: server) }
                 )
             } else {
                 return CallTool.Result(content: [.text("Unknown tool: \(params.name)")], isError: true)

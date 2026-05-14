@@ -5,11 +5,12 @@ func xcuitestTools() -> [Tool] {
     [
         Tool(
             name: "ui_start_bridge",
-            description: "Start the XCUITest bridge for interactive app control. Only requires device and bundle_id. A built-in runner handles everything automatically. Saved app profiles registered with the CLI are picked up by bundle_id. Optionally provide app_project_path and app_scheme to build and install the app first.",
+            description: "Start the XCUITest bridge for interactive app control. Prefer this over running xcodebuild manually. Usually only device and bundle_id are needed: the server auto-discovers the app from MCP workspace roots, builds/installs it, and uses the built-in runner. Saved app profiles and explicit app_project_path/app_scheme remain optional fallbacks.",
             inputSchema: toolSchema(
                 properties: [
                     "device": .stringProperty("Simulator name (e.g. 'iPhone 17 Pro')"),
                     "bundle_id": .stringProperty("Bundle ID of the app to control. Must be the exact bundle identifier — find it from the Xcode project if available, otherwise ask the user. Never guess."),
+                    "workspace_root": .stringProperty("Optional current repository path used only when MCP client roots are unavailable"),
                     "app_project_path": .stringProperty("Path to the app's .xcodeproj or .xcworkspace to build and install before testing"),
                     "app_scheme": .stringProperty("The app's scheme to build (required if app_project_path is provided)"),
                     "app_is_workspace": .booleanProperty("Set to true if app_project_path is a .xcworkspace"),
@@ -196,7 +197,8 @@ func handleXCUITestTool(
     name: String,
     args: [String: Value]?,
     bridge: XCUITestBridge,
-    simctl: SimctlService
+    simctl: SimctlService,
+    workspaceRoots: @Sendable () async -> [URL]
 ) async throws -> CallTool.Result {
     switch name {
     case "ui_start_bridge":
@@ -210,12 +212,25 @@ func handleXCUITestTool(
 
         let deviceUdid = try await simctl.bootDevice(device)
         let savedAppConfig = try AppRegistry().configuration(for: bundleId)
+        var appProfileSource: String?
 
-        if let appBuild = try resolveAppBuild(args: args, saved: savedAppConfig?.app) {
-            try await buildAndInstallApp(
-                project: appBuild.projectPath,
-                scheme: appBuild.scheme,
-                isWorkspace: appBuild.isWorkspace,
+        if let resolvedAppBuild = try await resolveAppBuildConfiguration(
+            args: args,
+            keys: AppBuildArgumentKeys(
+                projectPath: "app_project_path",
+                scheme: "app_scheme",
+                isWorkspace: "app_is_workspace"
+            ),
+            saved: savedAppConfig?.app,
+            bundleId: bundleId,
+            deviceUdid: deviceUdid,
+            workspaceRoots: await workspaceRoots()
+        ) {
+            appProfileSource = resolvedAppBuild.source
+            _ = try await buildAndInstallApp(
+                project: resolvedAppBuild.build.projectPath,
+                scheme: resolvedAppBuild.build.scheme,
+                isWorkspace: resolvedAppBuild.build.isWorkspace,
                 deviceUdid: deviceUdid,
                 simctl: simctl
             )
@@ -237,6 +252,7 @@ func handleXCUITestTool(
         return try successResponse([
             "message": "Bridge started for \(bundleId) on \(device)",
             "runner": runnerSource,
+            "app_profile": appProfileSource ?? "none",
         ])
 
     case "ui_tap":
@@ -344,29 +360,6 @@ func handleXCUITestTool(
     }
 }
 
-private func resolveAppBuild(
-    args: [String: Value]?,
-    saved: SavedAppBuild?
-) throws -> SavedAppBuild? {
-    let projectPath = args?.string("app_project_path") ?? ""
-    let scheme = args?.string("app_scheme") ?? ""
-    let hasInlineConfig = !projectPath.isEmpty || !scheme.isEmpty
-
-    if hasInlineConfig {
-        guard !projectPath.isEmpty, !scheme.isEmpty else {
-            throw SimctlError.commandFailed("app_project_path and app_scheme must be provided together.")
-        }
-
-        return SavedAppBuild(
-            projectPath: projectPath,
-            scheme: scheme,
-            isWorkspace: args?.bool("app_is_workspace") ?? isWorkspacePath(projectPath)
-        )
-    }
-
-    return saved
-}
-
 private func resolveCustomRunner(
     args: [String: Value]?,
     saved: SavedCustomRunner?
@@ -396,78 +389,4 @@ private func resolveCustomRunner(
 
     guard let saved else { return nil }
     return (saved, "saved-custom")
-}
-
-private func isWorkspacePath(_ path: String) -> Bool {
-    path.hasSuffix(".xcworkspace")
-}
-
-// MARK: - App Build Helper
-
-private func buildAndInstallApp(
-    project: String,
-    scheme: String,
-    isWorkspace: Bool,
-    deviceUdid: String,
-    simctl: SimctlService
-) async throws {
-    let buildProc = Process()
-    buildProc.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
-    buildProc.arguments = [
-        "build",
-        isWorkspace ? "-workspace" : "-project", project,
-        "-scheme", scheme,
-        "-destination", "platform=iOS Simulator,id=\(deviceUdid)",
-        "-quiet",
-    ]
-    let buildPipe = Pipe()
-    buildProc.standardOutput = buildPipe
-    buildProc.standardError = buildPipe
-    buildProc.standardInput = FileHandle.nullDevice
-    try buildProc.run()
-    await buildProc.waitUntilExitAsync()
-
-    if buildProc.terminationStatus != 0 {
-        let output = String(data: buildPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let lastLines = output.split(separator: "\n").suffix(10).joined(separator: "\n")
-        throw SimctlError.commandFailed("Failed to build app:\n\(lastLines)")
-    }
-
-    let settingsProc = Process()
-    settingsProc.executableURL = URL(fileURLWithPath: "/usr/bin/xcodebuild")
-    settingsProc.arguments = [
-        isWorkspace ? "-workspace" : "-project", project,
-        "-scheme", scheme,
-        "-destination", "platform=iOS Simulator,id=\(deviceUdid)",
-        "-showBuildSettings",
-    ]
-    let settingsPipe = Pipe()
-    settingsProc.standardOutput = settingsPipe
-    settingsProc.standardError = FileHandle.nullDevice
-    settingsProc.standardInput = FileHandle.nullDevice
-    try settingsProc.run()
-    await settingsProc.waitUntilExitAsync()
-
-    let settingsOutput = String(data: settingsPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-    var builtProductsDir = ""
-    var productName = ""
-    for line in settingsOutput.split(separator: "\n") {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        if trimmed.hasPrefix("BUILT_PRODUCTS_DIR = ") {
-            builtProductsDir = String(trimmed.dropFirst("BUILT_PRODUCTS_DIR = ".count))
-        } else if trimmed.hasPrefix("FULL_PRODUCT_NAME = ") {
-            productName = String(trimmed.dropFirst("FULL_PRODUCT_NAME = ".count))
-        }
-    }
-
-    guard !builtProductsDir.isEmpty, !productName.isEmpty else {
-        throw SimctlError.commandFailed("Could not locate built app product in xcodebuild settings output.")
-    }
-
-    let appPath = builtProductsDir + "/" + productName
-    guard FileManager.default.fileExists(atPath: appPath) else {
-        throw SimctlError.commandFailed("Built app was not found at expected path: \(appPath)")
-    }
-
-    try await simctl.installApp(deviceUdid: deviceUdid, appPath: appPath)
 }
